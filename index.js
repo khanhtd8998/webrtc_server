@@ -43,8 +43,16 @@ io.on("connection", (socket) => {
 
     console.log("joined room:", roomId);
 
-    socket.emit("room-joined");
+    socket.emit("room-joined", { roomId });
     socket.to(roomId).emit("peer-joined");
+  });
+
+  socket.on("signal", ({ roomId, data }) => {
+    // gửi cho peer còn lại trong phòng
+    socket.to(roomId).emit("signal", {
+      from: socket.id,
+      data,
+    });
   });
 
   socket.on("disconnect", () => {
