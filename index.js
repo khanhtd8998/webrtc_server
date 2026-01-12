@@ -9,10 +9,24 @@ const io = new Server(server, {
 
 const rooms = new Map();
 
+function emitRoomPeers(roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  const peers = Array.from(room).map((peerId) => {
+    const ps = io.sockets.sockets.get(peerId);
+    return {
+      socketId: peerId,
+      displayName: ps ? (ps.displayName ?? null) : null,
+    };
+  });
+  // Phát cho toàn bộ phòng để mọi người nhận cùng dữ liệu
+  io.to(roomId).emit("room-peers", { peers });
+}
+
 io.on("connection", (socket) => {
   console.log("connected:", socket.id);
 
-  // ✅ CREATE MEETING
+  // CREATE MEETING
   socket.on("create-room", () => {
     const roomId = randomUUID().slice(0, 8);
 
@@ -22,11 +36,13 @@ io.on("connection", (socket) => {
     console.log("room created:", roomId);
 
     socket.emit("room-created", { roomId });
+    emitRoomPeers(roomId);
   });
 
-  // ✅ JOIN MEETING
+  // JOIN MEETING
   socket.on("join-room", ({ roomId }) => {
     const room = rooms.get(roomId);
+
     if (!room) {
       socket.emit("room-error", { message: "Room not found" });
       return;
@@ -42,41 +58,84 @@ io.on("connection", (socket) => {
 
     console.log("joined room:", roomId);
 
-    // 1️⃣ Notify existing peers that a new peer has joined
+    // 1) Thông báo đến peer cũ là có người mới
     socket.to(roomId).emit("peer-joined", { socketId: socket.id });
 
-    // 2️⃣ Send peer-info of existing peers to the new peer
+    // 2) (Tuỳ chọn) Gửi peer-info của peer cũ cho người mới nếu đã có tên
     room.forEach((peerId) => {
       if (peerId !== socket.id) {
         const peerSocket = io.sockets.sockets.get(peerId);
-        if (peerSocket && peerSocket.displayName) {
-          socket.emit("peer-info", { displayName: peerSocket.displayName });
+        const displayName = peerSocket ? peerSocket.displayName : null;
+
+        if (displayName) {
+          socket.emit("peer-info", {
+            socketId: peerId,
+            displayName,
+          });
         }
       }
     });
 
-    // 3️⃣ Notify the new peer that join was successful
+    // 3) Xác nhận join
     socket.emit("room-joined");
+    emitRoomPeers(roomId);
+  });
+
+  // PULL API: client yêu cầu danh sách peers
+  socket.on("get-room-peers", ({ roomId }) => {
+    const room = rooms.get(roomId);
+    if (!room) {
+      socket.emit("room-error", { message: "Room not found" });
+      return;
+    }
+
+    const peers = Array.from(room).map((peerId) => {
+      const ps = io.sockets.sockets.get(peerId);
+      return {
+        socketId: peerId,
+        displayName: ps ? (ps.displayName ?? null) : null,
+      };
+    });
+
+    socket.emit("room-peers", { peers });
+  });
+
+  // leave room
+  socket.on("leave-room", ({ roomId }) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    if (room.has(socket.id)) {
+      room.delete(socket.id);
+      socket.leave(roomId);
+      console.log("left room:", roomId, "by", socket.id);
+
+      // Thông báo cho phần còn lại
+      socket.to(roomId).emit("peer-left", { socketId: socket.id });
+
+      // Cập nhật danh sách phòng cho tất cả còn lại
+      emitRoomPeers(roomId);
+
+      // Nếu phòng trống, xoá phòng
+      if (room.size === 0) {
+        rooms.delete(roomId);
+      }
+    }
   });
 
   // Khi peer gửi displayName
   socket.on("peer-info", ({ displayName }) => {
-    socket.displayName = displayName; // lưu tạm ở socket
+    socket.displayName = displayName;
 
     // gửi cho tất cả peer khác trong phòng
     const roomsOfSocket = Array.from(socket.rooms).filter(
       (r) => r !== socket.id
     );
     roomsOfSocket.forEach((roomId) => {
-      socket.to(roomId).emit("peer-info", { displayName });
-    });
-  });
-
-  socket.on("signal", ({ roomId, data }) => {
-    // gửi cho peer còn lại trong phòng
-    socket.to(roomId).emit("signal", {
-      from: socket.id,
-      data,
+      socket.to(roomId).emit("peer-info", {
+        socketId: socket.id,
+        displayName,
+      });
     });
   });
 
@@ -94,8 +153,8 @@ io.on("connection", (socket) => {
     for (const [roomId, members] of rooms) {
       if (members.has(socket.id)) {
         members.delete(socket.id);
-        socket.to(roomId).emit("peer-left");
-
+        socket.to(roomId).emit("peer-left", { socketId: socket.id });
+        emitRoomPeers(roomId);
         if (members.size === 0) {
           rooms.delete(roomId);
         }
