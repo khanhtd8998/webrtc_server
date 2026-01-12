@@ -149,6 +149,41 @@ io.on("connection", (socket) => {
     });
   });
 
+  // socket.on("offer", ({ to, offer }) => {
+  //   socket.to(to).emit("offer", {
+  //     from: socket.id,
+  //     offer,
+  //   });
+  // });
+  // socket.on("answer", ({ to, answer }) => {
+  //   socket.to(to).emit("answer", {
+  //     from: socket.id,
+  //     answer,
+  //   });
+  // });
+  // socket.on("ice-candidate", ({ to, candidate }) => {
+  //   console.log(to)
+  //   socket.to(to).emit("ice-candidate", {
+  //     from: socket.id,
+  //     candidate,
+  //   });
+  // });
+
+  //offer
+  socket.on("offer", ({ roomId, offer }) => {
+    socket.to(roomId).emit("offer", offer);
+  });
+
+  //answer
+  socket.on("answer", ({ roomId, answer }) => {
+    socket.to(roomId).emit("answer", answer);
+  });
+
+  //ice-candicate
+  socket.on("ice-candidate", ({ roomId, candidate }) => {
+    socket.to(roomId).emit("ice-candidate", candidate);
+  });
+
   socket.on("disconnect", () => {
     for (const [roomId, members] of rooms) {
       if (members.has(socket.id)) {

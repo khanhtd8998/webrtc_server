@@ -1,0 +1,34 @@
+
+  //offer
+  socket.on("offer", ({ roomId, to, offer }) => {
+    if (!roomId || !to || !offer) return;
+
+    console.log("offer from", socket.id, "to", to);
+
+    socket.to(to).emit("offer", {
+      from: socket.id,
+      offer,
+    });
+  });
+
+  //answer
+  socket.on("answer", ({ roomId, to, answer }) => {
+    if (!roomId || !to || !answer) return;
+
+    console.log("answer from", socket.id, "to", to);
+
+    socket.to(to).emit("answer", {
+      from: socket.id,
+      answer,
+    });
+  });
+
+  //ice-candicate
+  socket.on("ice-candidate", ({ roomId, to, candidate }) => {
+    if (!roomId || !to || !candidate) return;
+
+    socket.to(to).emit("ice-candidate", {
+      from: socket.id,
+      candidate,
+    });
+  });
