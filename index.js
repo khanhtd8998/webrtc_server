@@ -8,6 +8,7 @@ const io = new Server(server, {
 });
 
 const rooms = new Map();
+const joinedRooms = new Set();
 
 function emitRoomPeers(roomId) {
   const room = rooms.get(roomId);
@@ -149,39 +150,63 @@ io.on("connection", (socket) => {
     });
   });
 
-  // socket.on("offer", ({ to, offer }) => {
-  //   socket.to(to).emit("offer", {
-  //     from: socket.id,
-  //     offer,
-  //   });
-  // });
-  // socket.on("answer", ({ to, answer }) => {
-  //   socket.to(to).emit("answer", {
-  //     from: socket.id,
-  //     answer,
-  //   });
-  // });
-  // socket.on("ice-candidate", ({ to, candidate }) => {
-  //   console.log(to)
-  //   socket.to(to).emit("ice-candidate", {
-  //     from: socket.id,
-  //     candidate,
-  //   });
-  // });
+  //=======================WEbRTC==========================//
+  socket.on("webrtc:join", ( roomId ) => {
+    if (!roomId) return;
+    socket.join(roomId);
+    joinedRooms.add(roomId);
+    console.log(joinedRooms)
 
-  //offer
-  socket.on("offer", ({ roomId, offer }) => {
-    socket.to(roomId).emit("offer", offer);
+    const room = io.sockets.adapter.rooms.get(roomId);
+    if (!room) return;
+    const peers = Array.from(room);
+    console.log("webrtc peer", roomId, peers);
+
+    if (peers.length === 1) {
+      socket.emit("webrtc:role", { isOfferer: true });
+      console.log("offerer", socket.id);
+    }
+
+    if (peers.length === 2) {
+      const offererId = peers.find((peerId) => peerId !== socket.id);
+      if (offererId) {
+        io.to(offererId).emit("webrtc:role", { isOfferer: true });
+      }
+      console.log("answerer", socket.id);
+
+      socket.emit("webrtc:role", { isOfferer: false });
+      io.to(roomId).emit("webrtc:peer-ready", roomId);
+      console.log("peer reday", roomId);
+    }
+
+    if (peers.length > 2) {
+      socket.leave(roomId);
+      socket.emit("room-full");
+    }
   });
 
-  //answer
-  socket.on("answer", ({ roomId, answer }) => {
-    socket.to(roomId).emit("answer", answer);
+  socket.on("webrtc:offer", ({ roomId, sdp }) => {
+    console.log(" realy offer from", socket.id);
+    socket.to(roomId).emit("webrtc:offer", { sdp });
   });
 
-  //ice-candicate
-  socket.on("ice-candidate", ({ roomId, candidate }) => {
-    socket.to(roomId).emit("ice-candidate", candidate);
+  socket.on("webrtc:answer", ({ roomId, sdp }) => {
+    console.log(" realy answer from", socket.id);
+    socket.to(roomId).emit("webrtc:answer", { sdp });
+  });
+
+  socket.on("webrtc:ice", ({ roomId, candidate }) => {
+    socket.to(roomId).emit("webrtc:ice", candidate);
+  });
+
+  socket.on("webrtc:leave", ({ roomId }) => {
+    if (!roomId) return;
+
+    console.log("leave room", roomId, socket.id);
+    socket.leave(roomId);
+    joinedRooms.delete(roomId);
+
+    socket.to(roomId).emit("webrtc:peer-left");
   });
 
   socket.on("disconnect", () => {
